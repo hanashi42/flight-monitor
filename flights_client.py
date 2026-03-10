@@ -35,7 +35,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
     seen = set()
     for f in res.flights:
         price = parse_price(f.price)
-        if price is None:
+        if price is None or price == 0:
             continue
         # Dedup: same airline+price+departure
         key = (f.name, price, f.departure)

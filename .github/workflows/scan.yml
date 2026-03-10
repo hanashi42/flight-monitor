@@ -1,0 +1,70 @@
+name: Flight Price Scan
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'   # Every 2 hours
+  workflow_dispatch:          # Manual trigger
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Download price history
+        uses: actions/download-artifact@v4
+        with:
+          name: prices-db
+          path: .
+        continue-on-error: true
+
+      - name: Run scan
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python monitor.py scan
+
+      - name: Upload price history
+        uses: actions/upload-artifact@v4
+        with:
+          name: prices-db
+          path: prices.db
+          retention-days: 90
+          overwrite: true
+
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: scan
+    if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download price history
+        uses: actions/download-artifact@v4
+        with:
+          name: prices-db
+          path: .
+
+      - name: Send daily summary
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python monitor.py summary

@@ -1,4 +1,4 @@
 fast-flights>=2.2
 playwright>=1.40
-python-telegram-bot[job-queue]>=22.0
+requests>=2.31
 python-dotenv>=1.0

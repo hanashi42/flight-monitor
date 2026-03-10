@@ -3,8 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "hanashi-flights")
 
 ROUTES = [
     {"from": "JHB", "to": "KIX", "label": "JHB → KIX"},
@@ -22,4 +21,4 @@ THRESHOLDS = [
 SCAN_MONTHS_AHEAD = 6
 CURRENCY = "MYR"
 ALERT_DEDUP_HOURS = 12
-DB_PATH = os.path.join(os.path.dirname(__file__), "prices.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prices.db")

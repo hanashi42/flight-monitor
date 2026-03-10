@@ -1,12 +1,10 @@
-import asyncio
 import logging
-from datetime import time
-from concurrent.futures import ThreadPoolExecutor
+import sys
 from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
 from flights_client import scan_route_months
-from promo_monitor import check_promos, format_promo_alert
-from telegram_bot import get_app, send_message, format_alert, format_summary, setup_handlers
+from promo_monitor import check_promos
+from notify import send_alert, format_price_alert, format_summary, format_promo_alert
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,125 +12,82 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Shared app instance, set in main()
-_app = None
-_executor = ThreadPoolExecutor(max_workers=1)
-
 
 def classify_price(price):
-    for t in THRESHOLDS:  # sorted low to high
+    for t in THRESHOLDS:
         if price < t["max_price"]:
             return t
     return None
 
 
-def _scan_all_routes():
-    """Run flight queries in a thread (Playwright can't share asyncio loop)."""
-    all_flights = []
+def run_scan():
+    """Scan all routes, save prices, send alerts for low prices."""
     for route in ROUTES:
         route_key = f"{route['from']}-{route['to']}"
         log.info(f"Scanning {route_key}...")
+
         try:
             results = scan_route_months(route["from"], route["to"], SCAN_MONTHS_AHEAD)
-            for r in results:
-                r["route_key"] = route_key
-                r["route_label"] = route["label"]
-            all_flights.extend(results)
         except Exception as e:
             log.error(f"Failed to scan {route_key}: {e}")
-    return all_flights
-
-
-async def run_scan(context=None):
-    """Scan all routes. Called by JobQueue or /check command."""
-    global _app
-    app = _app
-    loop = asyncio.get_event_loop()
-
-    # Run Playwright queries in thread to avoid event loop conflict
-    all_flights = await loop.run_in_executor(_executor, _scan_all_routes)
-
-    for flight in all_flights:
-        route_key = flight["route_key"]
-        route_label = flight["route_label"]
-        prev_price = get_previous_price(route_key, flight["fly_date"])
-        save_price(
-            route_key, flight["fly_date"], flight["price"],
-            flight["airline"], flight["stops"], flight["deep_link"],
-        )
-
-        level = classify_price(flight["price"])
-        if level is None:
             continue
 
-        if was_alert_sent(route_key, flight["fly_date"], flight["price"], ALERT_DEDUP_HOURS):
-            continue
+        for flight in results:
+            prev_price = get_previous_price(route_key, flight["fly_date"])
+            save_price(
+                route_key, flight["fly_date"], flight["price"],
+                flight["airline"], flight["stops"], flight["deep_link"],
+            )
 
-        msg = format_alert(flight, route_label, level, prev_price)
-        try:
-            await send_message(app, msg)
-            save_alert(route_key, flight["fly_date"], flight["price"], level["level"])
-            log.info(f"Alert sent: {route_key} {flight['fly_date']} MYR {flight['price']}")
-        except Exception as e:
-            log.error(f"Failed to send alert: {e}")
-
-
-async def check_promo_feeds(context=None):
-    """Check airline promo RSS feeds for sales."""
-    global _app
-    try:
-        promos = check_promos()
-        for promo in promos[:3]:  # Max 3 promos per check
-            if was_alert_sent("promo", promo["title"][:50], promo["score"], ALERT_DEDUP_HOURS):
+            level = classify_price(flight["price"])
+            if level is None:
                 continue
-            msg = format_promo_alert(promo)
-            await send_message(_app, msg)
-            save_alert("promo", promo["title"][:50], promo["score"], "PROMO")
-            log.info(f"Promo alert sent: {promo['title'][:60]}")
-    except Exception as e:
-        log.error(f"Failed to check promos: {e}")
+
+            if was_alert_sent(route_key, flight["fly_date"], flight["price"], ALERT_DEDUP_HOURS):
+                continue
+
+            title, body, priority, tags = format_price_alert(flight, route["label"], level, prev_price)
+            send_alert(title, body, priority, tags)
+            save_alert(route_key, flight["fly_date"], flight["price"], level["level"])
 
 
-async def send_daily_summary(context=None):
+def run_summary():
     """Send daily cheapest price summary."""
-    global _app
     cheapest = get_cheapest_per_route()
-    msg = format_summary(cheapest)
-    try:
-        await send_message(_app, msg)
-        log.info("Daily summary sent")
-    except Exception as e:
-        log.error(f"Failed to send summary: {e}")
+    title, body, priority, tags = format_summary(cheapest)
+    send_alert(title, body, priority, tags)
 
 
-async def post_init(application):
-    """Called after app.initialize(). Set up jobs and run initial scan."""
-    global _app
-    _app = application
-
-    # Schedule recurring jobs via built-in JobQueue
-    jq = application.job_queue
-    jq.run_repeating(run_scan, interval=3600 * 2, first=10, name="scan")
-    jq.run_daily(send_daily_summary, time=time(hour=8, minute=5), name="summary")
-    jq.run_repeating(check_promo_feeds, interval=3600 * 4, first=60, name="promo_check")
-    log.info("Jobs scheduled: scan every 2h, summary at 08:05, promo every 4h")
-
-    # Run initial scan on startup
-    log.info("Running initial scan...")
-    await run_scan()
+def run_promos():
+    """Check promo feeds and alert on relevant ones."""
+    promos = check_promos()
+    for promo in promos[:3]:
+        if was_alert_sent("promo", promo["title"][:50], promo["score"], ALERT_DEDUP_HOURS):
+            continue
+        title, body, priority, tags = format_promo_alert(promo)
+        send_alert(title, body, priority, tags)
+        save_alert("promo", promo["title"][:50], promo["score"], "PROMO")
 
 
 def main():
     init_db()
-    log.info("Flight Monitor starting...")
 
-    app = get_app()
-    setup_handlers(app)
-    app.post_init = post_init
+    command = sys.argv[1] if len(sys.argv) > 1 else "scan"
 
-    # run_polling() is synchronous — it manages the event loop,
-    # starts polling, and blocks until Ctrl+C
-    app.run_polling(drop_pending_updates=True)
+    if command == "scan":
+        log.info("Running flight scan...")
+        run_scan()
+        run_promos()
+        log.info("Scan complete.")
+    elif command == "summary":
+        log.info("Sending daily summary...")
+        run_summary()
+    elif command == "promos":
+        log.info("Checking promos...")
+        run_promos()
+    else:
+        print(f"Usage: python monitor.py [scan|summary|promos]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
