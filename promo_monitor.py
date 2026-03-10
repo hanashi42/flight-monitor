@@ -26,18 +26,28 @@ PROMO_FEEDS = [
 ]
 
 # Must contain at least one airline keyword to be considered
-AIRLINE_GATE = ["airasia", "air asia", "scoot", "vietjet", "cebu pacific", "jetstar",
-                "batik air", "malaysia airlines", "flight", "flights", "fares", "fare"]
+AIRLINE_GATE = [
+    "airasia", "air asia", "scoot", "vietjet", "cebu pacific", "jetstar",
+    "batik air", "malaysia airlines", "flight", "flights", "fares", "fare",
+    "peach", "zipair", "tigerair", "starlux",
+]
 
 # High-value promo keywords (score +10 each)
-PROMO_KEYWORDS_HIGH = ["big sale", "free seats", "big member", "super sale", "flash sale",
-                       "0 fare", "rm0", "rm 0", "myr 0", "99% off"]
-# Destination keywords (score +5 each)
-ROUTE_KEYWORDS = ["osaka", "kansai", "kix", "tokyo", "nrt", "hnd", "japan"]
+PROMO_KEYWORDS_HIGH = [
+    "big sale", "free seats", "big member", "super sale", "flash sale",
+    "0 fare", "rm0", "rm 0", "myr 0", "99% off", "mega sale",
+]
+
+# Priority destination keywords — Japan & Taiwan (score +5 each)
+ROUTE_KEYWORDS = [
+    "osaka", "kansai", "kix", "tokyo", "nrt", "hnd", "narita", "haneda",
+    "japan", "sapporo", "hokkaido", "fukuoka", "okinawa",
+    "taipei", "taiwan", "tpe", "kaohsiung", "taichung",
+]
 
 
 def fetch_rss(url, timeout=15):
-    """Fetch and parse RSS feed. Returns list of items with title, link, description, pubDate."""
+    """Fetch and parse RSS feed. Returns list of items."""
     headers = {"User-Agent": "Mozilla/5.0 (FlightMonitor/1.0)"}
     resp = requests.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
@@ -109,20 +119,3 @@ def check_promos():
 
     promos.sort(key=lambda p: p["score"], reverse=True)
     return promos
-
-
-def format_promo_alert(promo):
-    """Format a promo for Telegram."""
-    if promo["score"] >= 10:
-        emoji = "🔥"
-        label = "促销警报"
-    else:
-        emoji = "📢"
-        label = "促销信息"
-
-    return (
-        f"{emoji} <b>{label}！</b>\n"
-        f"📰 {promo['source']}\n"
-        f"📌 {promo['title']}\n"
-        f"🔗 <a href=\"{promo['link']}\">查看详情</a>"
-    )

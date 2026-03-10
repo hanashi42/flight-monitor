@@ -58,13 +58,20 @@ def get_previous_price(route, fly_date):
 
 
 def get_cheapest_per_route():
+    """Get cheapest flight per route from last 24h.
+    Uses window function to ensure all columns come from the same row."""
     conn = get_conn()
     rows = conn.execute("""
+        WITH ranked AS (
+            SELECT
+                route, fly_date, price, airline, stops, deep_link,
+                ROW_NUMBER() OVER (PARTITION BY route ORDER BY price ASC) as rn
+            FROM prices
+            WHERE queried_at > datetime('now', '-24 hours')
+        )
         SELECT route, fly_date, price, airline, stops, deep_link
-        FROM prices
-        WHERE queried_at > datetime('now', '-24 hours')
-        GROUP BY route
-        HAVING price = MIN(price)
+        FROM ranked
+        WHERE rn = 1
         ORDER BY route
     """).fetchall()
     conn.close()

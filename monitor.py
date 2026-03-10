@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 
 def build_routes():
-    """Build route list from origins × destinations, both directions."""
+    """Build route list from origins x destinations."""
     routes = []
     for origin in ORIGINS:
         for tier_name, tier in DESTINATIONS.items():
@@ -22,13 +22,14 @@ def build_routes():
                 routes.append({
                     "from": origin,
                     "to": dest["code"],
-                    "label": f"{origin} → {dest['name']}",
+                    "label": f"{origin} \u2192 {dest['name']}",
                     "thresholds": tier["threshold"],
                 })
     return routes
 
 
 def classify_price(price, thresholds):
+    """Check if price falls under any alert threshold."""
     for t in thresholds:
         if price < t["max_price"]:
             return t
@@ -38,17 +39,25 @@ def classify_price(price, thresholds):
 def run_scan():
     """Scan all routes, save prices, send alerts for low prices."""
     routes = build_routes()
-    log.info(f"Scanning {len(routes)} routes...")
+    total = len(routes)
+    log.info(f"Scanning {total} routes (Japan + Taiwan priority)...")
 
-    for route in routes:
+    for i, route in enumerate(routes, 1):
         route_key = f"{route['from']}-{route['to']}"
-        log.info(f"Scanning {route_key}...")
+        log.info(f"[{i}/{total}] Scanning {route_key}...")
 
         try:
             results = scan_route_months(route["from"], route["to"], SCAN_MONTHS_AHEAD)
         except Exception as e:
             log.error(f"Failed to scan {route_key}: {e}")
             continue
+
+        if not results:
+            log.info(f"  {route_key}: no results found")
+            continue
+
+        cheapest = results[0]
+        log.info(f"  {route_key}: {len(results)} results, cheapest MYR {cheapest['price']:.0f}")
 
         for flight in results:
             prev_price = get_previous_price(route_key, flight["fly_date"])
@@ -62,28 +71,33 @@ def run_scan():
                 continue
 
             if was_alert_sent(route_key, flight["fly_date"], flight["price"], ALERT_DEDUP_HOURS):
+                log.debug(f"  Alert already sent for {route_key} {flight['fly_date']} MYR {flight['price']:.0f}")
                 continue
 
-            title, body, priority, tags = format_price_alert(flight, route["label"], level, prev_price)
-            send_alert(title, body, priority, tags)
+            title, body, priority, tags, click_url = format_price_alert(
+                flight, route["label"], level, prev_price
+            )
+            send_alert(title, body, priority, tags, click_url)
             save_alert(route_key, flight["fly_date"], flight["price"], level["level"])
 
 
 def run_summary():
     """Send daily cheapest price summary."""
     cheapest = get_cheapest_per_route()
-    title, body, priority, tags = format_summary(cheapest)
-    send_alert(title, body, priority, tags)
+    title, body, priority, tags, click_url = format_summary(cheapest)
+    send_alert(title, body, priority, tags, click_url)
 
 
 def run_promos():
     """Check promo feeds and alert on relevant ones."""
     promos = check_promos()
+    log.info(f"Found {len(promos)} relevant promos")
+
     for promo in promos[:3]:
         if was_alert_sent("promo", promo["title"][:50], promo["score"], ALERT_DEDUP_HOURS):
             continue
-        title, body, priority, tags = format_promo_alert(promo)
-        send_alert(title, body, priority, tags)
+        title, body, priority, tags, click_url = format_promo_alert(promo)
+        send_alert(title, body, priority, tags, click_url)
         save_alert("promo", promo["title"][:50], promo["score"], "PROMO")
 
 
@@ -93,15 +107,15 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else "scan"
 
     if command == "scan":
-        log.info("Running flight scan...")
+        log.info("=== Flight price scan started ===")
         run_scan()
         run_promos()
-        log.info("Scan complete.")
+        log.info("=== Scan complete ===")
     elif command == "summary":
         log.info("Sending daily summary...")
         run_summary()
     elif command == "promos":
-        log.info("Checking promos...")
+        log.info("Checking promos only...")
         run_promos()
     else:
         print(f"Usage: python monitor.py [scan|summary|promos]")
