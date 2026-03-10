@@ -25,10 +25,15 @@ PROMO_FEEDS = [
     },
 ]
 
-# Keywords that indicate a relevant promo (case-insensitive)
-PROMO_KEYWORDS_HIGH = ["big sale", "free seats", "big member", "super sale", "flash sale"]
-PROMO_KEYWORDS_LOW = ["airasia", "air asia", "scoot", "vietjet", "cebu pacific", "jetstar"]
-ROUTE_KEYWORDS = ["japan", "osaka", "kansai", "kix", "tokyo", "nrt", "hnd"]
+# Must contain at least one airline keyword to be considered
+AIRLINE_GATE = ["airasia", "air asia", "scoot", "vietjet", "cebu pacific", "jetstar",
+                "batik air", "malaysia airlines", "flight", "flights", "fares", "fare"]
+
+# High-value promo keywords (score +10 each)
+PROMO_KEYWORDS_HIGH = ["big sale", "free seats", "big member", "super sale", "flash sale",
+                       "0 fare", "rm0", "rm 0", "myr 0", "99% off"]
+# Destination keywords (score +5 each)
+ROUTE_KEYWORDS = ["osaka", "kansai", "kix", "tokyo", "nrt", "hnd", "japan"]
 
 
 def fetch_rss(url, timeout=15):
@@ -62,17 +67,19 @@ def fetch_rss(url, timeout=15):
 
 
 def score_promo(title, description):
-    """Score how relevant a promo item is. Higher = more relevant."""
+    """Score how relevant a promo item is. Higher = more relevant.
+    Returns 0 if no airline/flight keyword found (hard gate)."""
     text = f"{title} {description}".lower()
-    score = 0
+
+    # Hard gate: must mention airline or flights
+    if not any(kw in text for kw in AIRLINE_GATE):
+        return 0
+
+    score = 3  # Base score for passing the gate
 
     for kw in PROMO_KEYWORDS_HIGH:
         if kw in text:
             score += 10
-
-    for kw in PROMO_KEYWORDS_LOW:
-        if kw in text:
-            score += 3
 
     for kw in ROUTE_KEYWORDS:
         if kw in text:
