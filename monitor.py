@@ -1,7 +1,5 @@
-import asyncio
 import logging
-from datetime import datetime
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import time
 from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
 from kiwi_client import scan_route_months
@@ -13,6 +11,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Shared app instance, set in main()
+_app = None
+
 
 def classify_price(price):
     for t in THRESHOLDS:  # sorted low to high
@@ -21,9 +22,10 @@ def classify_price(price):
     return None
 
 
-async def run_scan(manual=False):
-    app = get_app()
-    await app.initialize()
+async def run_scan(context=None):
+    """Scan all routes. Called by JobQueue or /check command."""
+    global _app
+    app = _app
 
     for route in ROUTES:
         route_key = f"{route['from']}-{route['to']}"
@@ -57,44 +59,48 @@ async def run_scan(manual=False):
             except Exception as e:
                 log.error(f"Failed to send alert: {e}")
 
-    await app.shutdown()
 
-
-async def send_daily_summary():
-    app = get_app()
-    await app.initialize()
+async def send_daily_summary(context=None):
+    """Send daily cheapest price summary."""
+    global _app
     cheapest = get_cheapest_per_route()
     msg = format_summary(cheapest)
     try:
-        await send_message(app, msg)
+        await send_message(_app, msg)
         log.info("Daily summary sent")
     except Exception as e:
         log.error(f"Failed to send summary: {e}")
-    await app.shutdown()
 
 
-async def main():
+async def post_init(application):
+    """Called after app.initialize(). Set up jobs and run initial scan."""
+    global _app
+    _app = application
+
+    # Schedule recurring jobs via built-in JobQueue
+    jq = application.job_queue
+    jq.run_daily(run_scan, time=time(hour=8, minute=0), name="scan_morning")
+    jq.run_daily(run_scan, time=time(hour=20, minute=0), name="scan_evening")
+    jq.run_daily(send_daily_summary, time=time(hour=8, minute=5), name="summary")
+    log.info("Jobs scheduled: scan at 08:00/20:00, summary at 08:05")
+
+    # Run initial scan on startup
+    log.info("Running initial scan...")
+    await run_scan()
+
+
+def main():
     init_db()
     log.info("Flight Monitor starting...")
 
-    # Run initial scan
-    await run_scan()
-
-    # Set up scheduler
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(run_scan, "cron", hour="8,20", minute=0, id="scan")
-    scheduler.add_job(send_daily_summary, "cron", hour=8, minute=5, id="summary")
-    scheduler.start()
-    log.info("Scheduler started: scan at 08:00/20:00, summary at 08:05")
-
-    # Set up Telegram bot polling
     app = get_app()
     setup_handlers(app)
-    log.info("Telegram bot polling started")
+    app.post_init = post_init
 
-    # run_polling() blocks, handles graceful shutdown
-    await app.run_polling(drop_pending_updates=True)
+    # run_polling() is synchronous — it manages the event loop,
+    # starts polling, and blocks until Ctrl+C
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -49,7 +49,7 @@ def format_summary(cheapest_list):
 async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ 正在查询最新价格...")
     from monitor import run_scan
-    await run_scan(manual=True)
+    await run_scan(context)
     cheapest = get_cheapest_per_route()
     await update.message.reply_text(format_summary(cheapest), parse_mode="HTML")
 
