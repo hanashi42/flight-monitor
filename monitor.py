@@ -84,6 +84,9 @@ def run_scan():
 def run_summary():
     """Send daily cheapest price summary."""
     cheapest = get_cheapest_per_route()
+    if not cheapest:
+        log.info("No price data for summary, skipping notification")
+        return
     title, body, priority, tags, click_url = format_summary(cheapest)
     send_alert(title, body, priority, tags, click_url)
 

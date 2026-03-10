@@ -47,6 +47,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
             seat="economy",
             trip="one-way",
             passengers=Passengers(adults=1),
+            currency="MYR",
             fetch_mode="fallback",
         )
     except Exception as e:
