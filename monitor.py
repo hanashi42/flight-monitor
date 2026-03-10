@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from datetime import time
+from concurrent.futures import ThreadPoolExecutor
 from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
 from flights_client import scan_route_months
@@ -14,6 +16,7 @@ log = logging.getLogger(__name__)
 
 # Shared app instance, set in main()
 _app = None
+_executor = ThreadPoolExecutor(max_workers=1)
 
 
 def classify_price(price):
@@ -23,42 +26,55 @@ def classify_price(price):
     return None
 
 
+def _scan_all_routes():
+    """Run flight queries in a thread (Playwright can't share asyncio loop)."""
+    all_flights = []
+    for route in ROUTES:
+        route_key = f"{route['from']}-{route['to']}"
+        log.info(f"Scanning {route_key}...")
+        try:
+            results = scan_route_months(route["from"], route["to"], SCAN_MONTHS_AHEAD)
+            for r in results:
+                r["route_key"] = route_key
+                r["route_label"] = route["label"]
+            all_flights.extend(results)
+        except Exception as e:
+            log.error(f"Failed to scan {route_key}: {e}")
+    return all_flights
+
+
 async def run_scan(context=None):
     """Scan all routes. Called by JobQueue or /check command."""
     global _app
     app = _app
+    loop = asyncio.get_event_loop()
 
-    for route in ROUTES:
-        route_key = f"{route['from']}-{route['to']}"
-        log.info(f"Scanning {route_key}...")
+    # Run Playwright queries in thread to avoid event loop conflict
+    all_flights = await loop.run_in_executor(_executor, _scan_all_routes)
 
-        try:
-            results = scan_route_months(route["from"], route["to"], SCAN_MONTHS_AHEAD)
-        except Exception as e:
-            log.error(f"Failed to scan {route_key}: {e}")
+    for flight in all_flights:
+        route_key = flight["route_key"]
+        route_label = flight["route_label"]
+        prev_price = get_previous_price(route_key, flight["fly_date"])
+        save_price(
+            route_key, flight["fly_date"], flight["price"],
+            flight["airline"], flight["stops"], flight["deep_link"],
+        )
+
+        level = classify_price(flight["price"])
+        if level is None:
             continue
 
-        for flight in results:
-            prev_price = get_previous_price(route_key, flight["fly_date"])
-            save_price(
-                route_key, flight["fly_date"], flight["price"],
-                flight["airline"], flight["stops"], flight["deep_link"],
-            )
+        if was_alert_sent(route_key, flight["fly_date"], flight["price"], ALERT_DEDUP_HOURS):
+            continue
 
-            level = classify_price(flight["price"])
-            if level is None:
-                continue
-
-            if was_alert_sent(route_key, flight["fly_date"], flight["price"], ALERT_DEDUP_HOURS):
-                continue
-
-            msg = format_alert(flight, route["label"], level, prev_price)
-            try:
-                await send_message(app, msg)
-                save_alert(route_key, flight["fly_date"], flight["price"], level["level"])
-                log.info(f"Alert sent: {route_key} {flight['fly_date']} MYR {flight['price']}")
-            except Exception as e:
-                log.error(f"Failed to send alert: {e}")
+        msg = format_alert(flight, route_label, level, prev_price)
+        try:
+            await send_message(app, msg)
+            save_alert(route_key, flight["fly_date"], flight["price"], level["level"])
+            log.info(f"Alert sent: {route_key} {flight['fly_date']} MYR {flight['price']}")
+        except Exception as e:
+            log.error(f"Failed to send alert: {e}")
 
 
 async def check_promo_feeds(context=None):
