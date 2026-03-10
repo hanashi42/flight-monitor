@@ -3,11 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-KIWI_API_KEY = os.getenv("KIWI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
-KIWI_BASE_URL = "https://api.tequila.kiwi.com"
 
 ROUTES = [
     {"from": "JHB", "to": "KIX", "label": "JHB → KIX"},

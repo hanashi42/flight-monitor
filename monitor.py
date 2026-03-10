@@ -2,7 +2,7 @@ import logging
 from datetime import time
 from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
-from kiwi_client import scan_route_months
+from flights_client import scan_route_months
 from telegram_bot import get_app, send_message, format_alert, format_summary, setup_handlers
 
 logging.basicConfig(
