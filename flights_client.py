@@ -12,11 +12,18 @@ QUERY_DELAY = 3  # seconds
 
 
 def parse_price(price_str):
-    """Parse 'MYR\xa0516' or 'MYR 516' into float. Returns None if unparseable."""
-    if not price_str or "unavailable" in price_str.lower():
+    """Parse 'MYR\xa0516' into float. Only accepts real ticket price format.
+    Rejects price insight text like 'MYR 59 cheaper than usual'."""
+    if not price_str:
         return None
-    nums = re.sub(r"[^\d.]", "", price_str)
-    return float(nums) if nums else None
+    if not price_str.startswith("MYR"):
+        return None
+    # After "MYR", should only be whitespace + digits + comma/period
+    after_myr = price_str[3:]
+    cleaned = after_myr.replace("\xa0", "").replace(" ", "").replace(",", "")
+    if not cleaned or not cleaned.replace(".", "", 1).isdigit():
+        return None
+    return float(cleaned)
 
 
 def search_flights_for_date(fly_from, fly_to, date_str):
@@ -34,6 +41,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
     results = []
     seen = set()
     for f in res.flights:
+        log.debug(f"  raw: price={f.price!r} name={f.name!r} dep={f.departure!r} dur={f.duration!r}")
         price = parse_price(f.price)
         if price is None or price < 20:
             continue
@@ -43,11 +51,19 @@ def search_flights_for_date(fly_from, fly_to, date_str):
         # Skip if stops is not a number
         if not isinstance(f.stops, int):
             continue
+        # Skip if missing departure/arrival/duration (UI artifacts)
+        if not f.departure or not f.arrival or not f.duration:
+            continue
         # Dedup: same airline+price+departure
         key = (f.name, price, f.departure)
         if key in seen:
             continue
         seen.add(key)
+
+        # Build AirAsia MOVE search link (date format: DD%2FMM%2FYYYY)
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        aa_date = f"{d.day:02d}%2F{d.month:02d}%2F{d.year}"
+        airasia_link = f"https://www.airasia.com/flights/search/?origin={fly_from}&destination={fly_to}&departDate={aa_date}&tripType=O&adult=1&child=0&infant=0&currency=MYR&cabinClass=economy"
 
         results.append({
             "price": price,
@@ -55,6 +71,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
             "airline": f.name,
             "stops": f.stops,
             "deep_link": f"https://www.google.com/travel/flights?q=from+{fly_from}+to+{fly_to}+on+{date_str}+one+way&curr=MYR",
+            "airasia_link": airasia_link,
         })
 
     # Sort by price, keep top 5

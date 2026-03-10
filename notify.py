@@ -44,7 +44,8 @@ def format_price_alert(flight, route_label, level_info, prev_price=None):
         f"📅 {flight['fly_date']}\n"
         f"✈️ {flight['airline']} ({stops_text})\n"
         f"💰 MYR {flight['price']:.0f}{diff}\n"
-        f"🔗 {flight['deep_link']}"
+        f"🔗 {flight['deep_link']}\n"
+        f"🛫 {flight.get('airasia_link', '')}"
     )
 
     priority = "urgent" if level_info["level"] == "BUY_NOW" else "high" if level_info["level"] == "VERY_LOW" else "default"
