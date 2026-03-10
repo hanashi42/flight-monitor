@@ -96,11 +96,10 @@ async def post_init(application):
 
     # Schedule recurring jobs via built-in JobQueue
     jq = application.job_queue
-    jq.run_daily(run_scan, time=time(hour=8, minute=0), name="scan_morning")
-    jq.run_daily(run_scan, time=time(hour=20, minute=0), name="scan_evening")
+    jq.run_repeating(run_scan, interval=3600 * 2, first=10, name="scan")
     jq.run_daily(send_daily_summary, time=time(hour=8, minute=5), name="summary")
     jq.run_repeating(check_promo_feeds, interval=3600 * 4, first=60, name="promo_check")
-    log.info("Jobs scheduled: scan at 08:00/20:00, summary at 08:05, promo every 4h")
+    log.info("Jobs scheduled: scan every 2h, summary at 08:05, promo every 4h")
 
     # Run initial scan on startup
     log.info("Running initial scan...")
