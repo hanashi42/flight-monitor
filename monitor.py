@@ -3,6 +3,7 @@ from datetime import time
 from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
 from flights_client import scan_route_months
+from promo_monitor import check_promos, format_promo_alert
 from telegram_bot import get_app, send_message, format_alert, format_summary, setup_handlers
 
 logging.basicConfig(
@@ -60,6 +61,22 @@ async def run_scan(context=None):
                 log.error(f"Failed to send alert: {e}")
 
 
+async def check_promo_feeds(context=None):
+    """Check airline promo RSS feeds for sales."""
+    global _app
+    try:
+        promos = check_promos()
+        for promo in promos[:3]:  # Max 3 promos per check
+            if was_alert_sent("promo", promo["title"][:50], promo["score"], ALERT_DEDUP_HOURS):
+                continue
+            msg = format_promo_alert(promo)
+            await send_message(_app, msg)
+            save_alert("promo", promo["title"][:50], promo["score"], "PROMO")
+            log.info(f"Promo alert sent: {promo['title'][:60]}")
+    except Exception as e:
+        log.error(f"Failed to check promos: {e}")
+
+
 async def send_daily_summary(context=None):
     """Send daily cheapest price summary."""
     global _app
@@ -82,7 +99,8 @@ async def post_init(application):
     jq.run_daily(run_scan, time=time(hour=8, minute=0), name="scan_morning")
     jq.run_daily(run_scan, time=time(hour=20, minute=0), name="scan_evening")
     jq.run_daily(send_daily_summary, time=time(hour=8, minute=5), name="summary")
-    log.info("Jobs scheduled: scan at 08:00/20:00, summary at 08:05")
+    jq.run_repeating(check_promo_feeds, interval=3600 * 4, first=60, name="promo_check")
+    log.info("Jobs scheduled: scan at 08:00/20:00, summary at 08:05, promo every 4h")
 
     # Run initial scan on startup
     log.info("Running initial scan...")
