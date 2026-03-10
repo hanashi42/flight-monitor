@@ -8,7 +8,7 @@ from fast_flights import FlightData, Passengers, get_flights
 log = logging.getLogger(__name__)
 
 # Delay between queries to avoid rate limiting
-QUERY_DELAY = 2  # seconds
+QUERY_DELAY = 3  # seconds
 
 
 def parse_price(price_str):
@@ -35,7 +35,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
         seat="economy",
         trip="one-way",
         passengers=Passengers(adults=1),
-        fetch_mode="local",
+        fetch_mode="fallback",
     )
 
     results = []
