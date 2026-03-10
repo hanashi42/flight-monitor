@@ -59,8 +59,8 @@ def search_flights_for_date(fly_from, fly_to, date_str):
 def scan_month(fly_from, fly_to, year, month):
     """Sample 4 dates in the month to find cheap flights."""
     days_in_month = monthrange(year, month)[1]
-    # Sample: mid-month and end-month
-    sample_days = [15, 28]
+    # Sample: mid-month only (1 query per month to keep scan fast)
+    sample_days = [15]
     sample_days = [d for d in sample_days if d <= days_in_month]
 
     all_results = []

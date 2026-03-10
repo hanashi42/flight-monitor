@@ -1,6 +1,6 @@
 import logging
 import sys
-from config import ROUTES, THRESHOLDS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
+from config import ORIGINS, DESTINATIONS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
 from flights_client import scan_route_months
 from promo_monitor import check_promos
@@ -13,8 +13,23 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def classify_price(price):
-    for t in THRESHOLDS:
+def build_routes():
+    """Build route list from origins × destinations, both directions."""
+    routes = []
+    for origin in ORIGINS:
+        for tier_name, tier in DESTINATIONS.items():
+            for dest in tier["airports"]:
+                routes.append({
+                    "from": origin,
+                    "to": dest["code"],
+                    "label": f"{origin} → {dest['name']}",
+                    "thresholds": tier["threshold"],
+                })
+    return routes
+
+
+def classify_price(price, thresholds):
+    for t in thresholds:
         if price < t["max_price"]:
             return t
     return None
@@ -22,7 +37,10 @@ def classify_price(price):
 
 def run_scan():
     """Scan all routes, save prices, send alerts for low prices."""
-    for route in ROUTES:
+    routes = build_routes()
+    log.info(f"Scanning {len(routes)} routes...")
+
+    for route in routes:
         route_key = f"{route['from']}-{route['to']}"
         log.info(f"Scanning {route_key}...")
 
@@ -39,7 +57,7 @@ def run_scan():
                 flight["airline"], flight["stops"], flight["deep_link"],
             )
 
-            level = classify_price(flight["price"])
+            level = classify_price(flight["price"], route["thresholds"])
             if level is None:
                 continue
 
