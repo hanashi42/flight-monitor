@@ -8,7 +8,7 @@ from fast_flights import FlightData, Passengers, get_flights
 log = logging.getLogger(__name__)
 
 # Delay between queries to avoid rate limiting
-QUERY_DELAY = 3  # seconds
+QUERY_DELAY = 2  # seconds
 
 
 def parse_price(price_str):

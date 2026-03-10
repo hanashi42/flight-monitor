@@ -8,7 +8,7 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +35,7 @@ jobs:
         run: python monitor.py scan
 
       - name: Upload price history
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: prices-db

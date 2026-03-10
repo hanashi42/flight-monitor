@@ -63,7 +63,7 @@ DESTINATIONS = {
     },
 }
 
-SCAN_MONTHS_AHEAD = 6
+SCAN_MONTHS_AHEAD = 3
 CURRENCY = "MYR"
 ALERT_DEDUP_HOURS = 12
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prices.db")
