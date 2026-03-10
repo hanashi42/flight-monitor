@@ -35,7 +35,13 @@ def search_flights_for_date(fly_from, fly_to, date_str):
     seen = set()
     for f in res.flights:
         price = parse_price(f.price)
-        if price is None or price == 0:
+        if price is None or price < 20:
+            continue
+        # Skip entries with no airline name (page UI elements)
+        if not f.name or f.name.strip() == "":
+            continue
+        # Skip if stops is not a number
+        if not isinstance(f.stops, int):
             continue
         # Dedup: same airline+price+departure
         key = (f.name, price, f.departure)
@@ -46,9 +52,9 @@ def search_flights_for_date(fly_from, fly_to, date_str):
         results.append({
             "price": price,
             "fly_date": date_str,
-            "airline": f.name or "Unknown",
-            "stops": f.stops if f.stops is not None else 0,
-            "deep_link": f"https://www.google.com/travel/flights?q=Flights+from+{fly_from}+to+{fly_to}+on+{date_str}",
+            "airline": f.name,
+            "stops": f.stops,
+            "deep_link": f"https://www.google.com/travel/flights?q=from+{fly_from}+to+{fly_to}+on+{date_str}+one+way&curr=MYR",
         })
 
     # Sort by price, keep top 5
@@ -57,7 +63,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
 
 
 def scan_month(fly_from, fly_to, year, month):
-    """Sample 4 dates in the month to find cheap flights."""
+    """Sample dates in the month to find cheap flights."""
     days_in_month = monthrange(year, month)[1]
     # Sample: mid-month only (1 query per month to keep scan fast)
     sample_days = [15]
