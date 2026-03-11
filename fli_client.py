@@ -6,6 +6,7 @@ for detailed flight info on the best dates.
 
 import logging
 import time
+import requests
 from datetime import datetime, timedelta
 from calendar import monthrange
 
@@ -25,6 +26,94 @@ log = logging.getLogger(__name__)
 
 # Delay between API calls to avoid rate limiting
 QUERY_DELAY = 1
+
+# Google Flights returns prices in currency based on server IP location.
+# CI runs on US servers → USD. We need to convert to MYR.
+_usd_to_myr = None
+
+
+def _get_usd_to_myr():
+    """Fetch current USD→MYR rate from frankfurter.dev (cached per run)."""
+    global _usd_to_myr
+    if _usd_to_myr is not None:
+        return _usd_to_myr
+    try:
+        resp = requests.get(
+            "https://api.frankfurter.dev/v1/latest?base=USD&symbols=MYR",
+            timeout=5,
+        )
+        resp.raise_for_status()
+        _usd_to_myr = resp.json()["rates"]["MYR"]
+        log.info(f"USD→MYR rate: {_usd_to_myr}")
+    except Exception as e:
+        log.warning(f"Failed to fetch USD→MYR rate, using fallback 4.4: {e}")
+        _usd_to_myr = 4.4
+    return _usd_to_myr
+
+
+def _detect_currency_multiplier():
+    """Detect if Google Flights is returning USD or MYR.
+
+    Does a probe search for a known route (KUL→SIN, always ~MYR 50-300).
+    If the returned price is < 15 (i.e. looks like USD ~$12-70), we're getting USD.
+    Returns multiplier: ~4.4 for USD→MYR conversion, 1.0 if already MYR.
+    Cached for the entire run.
+    """
+    global _usd_to_myr
+    if _usd_to_myr is not None:
+        return _usd_to_myr
+
+    # Probe: KUL→SIN is always cheap and available
+    try:
+        origin = getattr(Airport, "KUL")
+        dest = getattr(Airport, "SIN")
+        tomorrow = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+        segments, trip_type = build_date_search_segments(origin, dest, tomorrow)
+        filters = DateSearchFilters(
+            flight_segments=segments,
+            passenger_info=PassengerInfo(adults=1),
+            trip_type=trip_type,
+            seat_type=SeatType.ECONOMY,
+            from_date=tomorrow,
+            to_date=(datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"),
+        )
+        searcher = SearchDates()
+        results = searcher.search(filters)
+        if results:
+            min_price = min(dp.price for dp in results)
+            # KUL→SIN in MYR is typically 50-300. In USD it's 12-70.
+            if min_price < 25:
+                # Getting USD — fetch conversion rate
+                try:
+                    resp = requests.get(
+                        "https://api.frankfurter.dev/v1/latest?base=USD&symbols=MYR",
+                        timeout=5,
+                    )
+                    resp.raise_for_status()
+                    rate = resp.json()["rates"]["MYR"]
+                except Exception:
+                    rate = 4.4
+                log.info(f"Currency probe: KUL→SIN min={min_price} → USD detected, rate={rate}")
+                _usd_to_myr = rate
+                return _usd_to_myr
+            else:
+                log.info(f"Currency probe: KUL→SIN min={min_price} → MYR detected")
+                _usd_to_myr = 1.0
+                return _usd_to_myr
+    except Exception as e:
+        log.warning(f"Currency probe failed, assuming USD with fallback rate: {e}")
+
+    # Fallback: assume USD on CI
+    _usd_to_myr = 4.4
+    return _usd_to_myr
+
+
+def _to_myr(price):
+    """Convert price to MYR if needed."""
+    multiplier = _detect_currency_multiplier()
+    if multiplier == 1.0:
+        return price
+    return round(price * multiplier, 2)
 
 
 def _make_links(fly_from, fly_to, date_str):
@@ -82,7 +171,7 @@ def search_flights_for_date(fly_from, fly_to, date_str):
     results = []
     seen = set()
     for f in flights:
-        price = f.price
+        price = _to_myr(f.price)
         if price < 20 or price > 10000:
             continue
 
@@ -151,7 +240,7 @@ def _search_cheapest_dates(fly_from, fly_to, from_date, to_date):
     dated_prices = []
     for dp in results:
         date_str = dp.date[0].strftime("%Y-%m-%d")
-        dated_prices.append((date_str, dp.price))
+        dated_prices.append((date_str, _to_myr(dp.price)))
 
     dated_prices.sort(key=lambda x: x[1])
     return dated_prices
