@@ -70,8 +70,6 @@ DESTINATIONS = {
 
 # ── Scan settings ────────────────────────────────────────────────
 SCAN_MONTHS_AHEAD = 4          # Look 4 months ahead
-SAMPLE_DAYS_PER_MONTH = 3      # Check 3 spread-out days per month
-QUERY_DELAY = 3                 # Seconds between Google Flights queries
 CURRENCY = "MYR"
 ALERT_DEDUP_HOURS = 12
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prices.db")

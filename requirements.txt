@@ -1,4 +1,3 @@
-fast-flights>=2.2
-playwright>=1.40
+flights>=0.3
 requests>=2.31
 python-dotenv>=1.0

@@ -2,7 +2,7 @@ import logging
 import sys
 from config import ORIGINS, DESTINATIONS, SCAN_MONTHS_AHEAD, ALERT_DEDUP_HOURS
 from db import init_db, save_price, get_previous_price, was_alert_sent, save_alert, get_cheapest_per_route
-from flights_client import scan_route_months
+from fli_client import scan_route_months
 from promo_monitor import check_promos
 from notify import send_alert, format_price_alert, format_summary, format_promo_alert
 
