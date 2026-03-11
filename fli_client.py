@@ -83,11 +83,11 @@ def search_flights_for_date(fly_from, fly_to, date_str):
     seen = set()
     for f in flights:
         price = f.price
-        if price <= 0 or price < 20 or price > 10000:
+        if price < 20 or price > 10000:
             continue
 
         # Extract airline from first leg
-        airline = f.legs[0].airline.name if f.legs else "Unknown"
+        airline = f.legs[0].airline.value if f.legs else "Unknown"
         stops = f.stops
 
         # Departure/arrival from first and last leg
@@ -220,7 +220,7 @@ def scan_route_months(fly_from, fly_to, months_ahead=4):
                         "price": date_price,
                         "fly_date": date_str,
                         "airline": "Unknown",
-                        "stops": -1,
+                        "stops": 0,
                         "departure": "",
                         "arrival": "",
                         "duration": "",
